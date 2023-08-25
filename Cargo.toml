@@ -1,0 +1,22 @@
+[package]
+name = "halo2-tornado"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "halo2-tornado"
+path = "src/main.rs"
+
+[dependencies]
+sha2 = "0.10.6"
+rand = "0.8.5"
+env_logger = "0.10"
+clap = { version = "4.1", features = ["derive"] }
+halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v2023_02_02" }
+halo2_gadgets = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v2023_02_02" }
+halo2curves = { git = "https://github.com/privacy-scaling-explorations/halo2curves.git" }
+
+[features]
+default = []
