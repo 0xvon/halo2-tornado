@@ -6,7 +6,7 @@ The Tornado's Circuit Implementation with PSE/Halo2.
 
 # Get Started
 
-#### install Rust
+#### Install Rust
 
 ```
 $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
