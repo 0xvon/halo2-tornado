@@ -15,26 +15,26 @@ use halo2_gadgets::{
         CommitDomains, HashDomains, chip::SinsemillaChip,
     },
     utilities::{UtilitiesInstructions, lookup_range_check::LookupRangeCheckConfig},
-    ecc::{FixedPoints, chip::EccChip},
+    ecc::FixedPoints,
 };
 
 mod gadgets;
 
-pub const MERKLE_DEPTH: usize = 20;
+pub const MERKLE_DEPTH: usize = 4;
 
 // Absolute offsets for public inputs.
 const COMMITMENT: usize = 0;
-const NULLIFIER_HASH: usize = 1;
-const ROOT: usize = 2;
+const ROOT: usize = 1;
 
 pub const WIDTH: usize = 3;
 pub const RATE: usize = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TornadoHashDomain;
+#[allow(non_snake_case)]
 impl HashDomains<pallas::Affine> for TornadoHashDomain {
     fn Q(&self) -> pallas::Affine {
-        pallas::Point::generator().to_affine()
+        pallas::Point::generator().to_affine() // ???
     }
 }
 
@@ -42,9 +42,7 @@ impl HashDomains<pallas::Affine> for TornadoHashDomain {
 pub(crate) struct TornadoFixedPoint;
 impl FixedPoints<pallas::Affine> for TornadoFixedPoint {
     type FullScalar = pallas::Affine;
-
     type ShortScalar = pallas::Affine;
-
     type Base = pallas::Affine;
 }
 
@@ -62,7 +60,7 @@ impl CommitDomains<pallas::Affine, TornadoFixedPoint, TornadoHashDomain> for Tor
 
 #[derive(Clone, Debug)]
 pub struct Config {
-    advices: [Column<Advice>; 4],
+    advices: [Column<Advice>; 5],
     instance: Column<Instance>,
     poseidon_config: PoseidonConfig<pallas::Base, WIDTH, RATE>,
     merkle_config: MerkleConfig<TornadoHashDomain, TornadoCommitDomain, TornadoFixedPoint>,
@@ -74,7 +72,6 @@ pub struct TornadoCircuit {
     nullifier: Value<Fp>,
     position_bits: Value<u32>,
     path: Value<[Fp; MERKLE_DEPTH]>,
-    root: Value<Fp>,
 }
 
 impl UtilitiesInstructions<pallas::Base> for TornadoCircuit {
@@ -87,7 +84,6 @@ impl TornadoCircuit {
         config: Config,
         mut layouter: impl Layouter<Fp>,
         message: [AssignedCell<Fp, Fp>; 2],
-        // to_hash: &str,
     ) -> Result<AssignedCell<Fp, Fp>, Error> {
         let config = config.clone();
         
@@ -127,10 +123,7 @@ impl TornadoCircuit {
         <
             pallas::Affine,
             MerkleChip<TornadoHashDomain, TornadoCommitDomain, TornadoFixedPoint>,
-            MERKLE_DEPTH,
-            10_usize,
-            253,
-            1_usize,
+            MERKLE_DEPTH, 10, 253, 1,
         > = MerklePath::construct(
             [merkle_chip],
             TornadoHashDomain,
@@ -168,7 +161,8 @@ impl Circuit<pallas::Base> for TornadoCircuit {
             meta.advice_column(),
             meta.advice_column(),
             meta.advice_column(),
-            meta.advice_column(),
+            meta.advice_column(), // For Poseidon
+            meta.advice_column(), // For Merkle
         ];
 
         let instance = meta.instance_column();
@@ -190,55 +184,28 @@ impl Circuit<pallas::Base> for TornadoCircuit {
         ];
 
         meta.enable_constant(rc_b[0]);
-
         let poseidon_config = PoseidonChip::configure::<P128Pow5T3>(meta, advices[0..3].try_into().unwrap(), advices[3], rc_a, rc_b);
-
-        let merkle_advices = [
-            meta.advice_column(),
-            meta.advice_column(),
-            meta.advice_column(),
-            meta.advice_column(),
-            meta.advice_column(),
-            meta.advice_column(),
-            meta.advice_column(),
-            meta.advice_column(),
-            meta.advice_column(),
-            meta.advice_column(),
-        ];
 
         // Shared fixed column for loading constants
         let merkle_constants = meta.fixed_column();
         meta.enable_constant(merkle_constants);
 
-        let merkle_table_idx = meta.lookup_table_column();
-        let merkle_lagrange_coeffs = [
-            meta.fixed_column(),
-            meta.fixed_column(),
-            meta.fixed_column(),
-            meta.fixed_column(),
-            meta.fixed_column(),
-            meta.fixed_column(),
-            meta.fixed_column(),
-            meta.fixed_column(),
-        ];
+        let merkle_fixed_y_q = meta.fixed_column();
 
         // Fixed columns for the Sinsemilla generator lookup table
         let merkle_lookup = (
-            merkle_table_idx,
+            meta.lookup_table_column(),
             meta.lookup_table_column(),
             meta.lookup_table_column(),
         );
 
-        let range_check = LookupRangeCheckConfig::configure(meta, advices[9], merkle_table_idx);
-
-        let ecc_config =
-            EccChip::<TornadoFixedPoint>::configure(meta, merkle_advices, merkle_lagrange_coeffs, range_check);
+        let range_check = LookupRangeCheckConfig::configure(meta, advices[4], merkle_lookup.0);
 
         let sinsemilla_config = SinsemillaChip::configure(
             meta,
-            merkle_advices[..5].try_into().unwrap(),
-            merkle_advices[2],
-            merkle_lagrange_coeffs[0],
+            advices[..5].try_into().unwrap(),
+            advices[2],
+            merkle_fixed_y_q,
             merkle_lookup,
             range_check,
         );
@@ -280,8 +247,9 @@ impl Circuit<pallas::Base> for TornadoCircuit {
             self.path,
         )?;
 
-        println!("{:?}", root.value());
+        // println!("commitment: {:?}, root: {:?}", commitment.value(), root.value());
         self.expose_public(layouter.namespace(|| "expose commitment"), config.instance, commitment.clone(), COMMITMENT)?;
+        self.expose_public(layouter.namespace(|| "expose root"), config.instance, root.clone(), ROOT)?;
 
         Ok({})
     }
@@ -291,15 +259,6 @@ impl Circuit<pallas::Base> for TornadoCircuit {
 mod tests {
     use super::TornadoCircuit;
     use halo2_proofs::{dev::MockProver, halo2curves::pasta::Fp, circuit::Value};
-    use halo2_gadgets::{
-        poseidon::{
-            Pow5Chip as PoseidonChip,
-            Pow5Config as PoseidonConfig,
-            Hash as PoseidonHash,
-            primitives::{P128Pow5T3, ConstantLength},
-        },
-        sinsemilla::{merkle::{*, chip::MerkleConfig}, HashDomain},
-    };
 
     #[test]
     fn commitment() {
@@ -307,25 +266,35 @@ mod tests {
 
         let secret = Fp::from(2);
         let nullifier = Fp::from(3);
-        // let external_nullifier = Fp::from(5);
-        // let path = [Fp::from(1), Fp::from(1), Fp::from(1), Fp::from(1)];
-        // let position_bits = [Fp::from(0), Fp::from(0), Fp::from(0), Fp::from(0)];
-
-        let message = [secret, nullifier];
-        // TODO: calculate hash
-        // let commitment = ...
+        let path = [
+            Fp::from(1), Fp::from(1), Fp::from(1), Fp::from(1), 
+        ];
+        let position_bits: u32 = 1;
         
-        // let circuit = TornadoCircuit {
-        //     secret: Value::known(secret),
-        //     nullifier: Value::known(nullifier),
-        // };
+        let circuit = TornadoCircuit {
+            secret: Value::known(secret),
+            nullifier: Value::known(nullifier),
+            path: Value::known(path),
+            position_bits: Value::known(position_bits),
+        };
 
-        // let public_inputs = vec![
-        //     Fp::from(6), // TODO: replace it to hash
-        // ];
+        let public_inputs = vec![
+            Fp::from_raw([
+                0x92c1f7b1649c6bbf,
+                0xa227de40a263afa7,
+                0xe727c638157add9c,
+                0x1df874f19cd1afa3,
+            ]),
+            Fp::from_raw([
+                0x3058c942b6150b15,
+                0x369f22098cb08f84,
+                0xd4e309a93493cd14,
+                0x3e0dd91d7883e6b1,
+            ]),
+        ];
 
-        // let prover = MockProver::run(k, &circuit, vec![public_inputs.clone()]).unwrap();
-        // assert!(prover.verify().is_err()); // TODO: pass it
+        let prover = MockProver::run(k, &circuit, vec![public_inputs.clone()]).unwrap();
+        assert_eq!(prover.verify(), Ok(()))
     }
 }
 
