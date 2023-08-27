@@ -45,6 +45,7 @@ pub struct TornadoCircuit {
     nullifier: Value<Fp>,
     position_bits: Value<u32>,
     path: Value<[Fp; MERKLE_DEPTH]>,
+    root: Value<Fp>,
 }
 
 impl UtilitiesInstructions<pallas::Base> for TornadoCircuit {
@@ -231,7 +232,12 @@ impl Circuit<pallas::Base> for TornadoCircuit {
             self.path,
         )?;
 
-        println!("commitment: {:?}, root: {:?}", commitment.value(), root.value());
+        // compare the root
+        self.root.zip(root.value())
+            .assert_if_known(|(root_a, root_b)| { root_a.eq(root_b) });
+
+        // outputs
+        // println!("commitment: {:?}, root: {:?}", commitment.value(), root.value());
         self.expose_public(layouter.namespace(|| "expose commitment"), config.instance, commitment.clone(), COMMITMENT)?;
         self.expose_public(layouter.namespace(|| "expose root"), config.instance, root.clone(), ROOT)?;
 
@@ -254,28 +260,28 @@ mod tests {
             Fp::from(1), Fp::from(1), Fp::from(1), Fp::from(1), 
         ];
         let position_bits: u32 = 0;
+        let commitment = Fp::from_raw([ // commitment
+            0x92c1f7b1649c6bbf,
+            0xa227de40a263afa7,
+            0xe727c638157add9c,
+            0x1df874f19cd1afa3,
+        ]);
+        let root = Fp::from_raw([ // merkle root
+            0x77c43bc65cfa9fc3,
+            0x669692400aa6adc7,
+            0xd8c3d88cf8b815fa,
+            0x109456ef2fee2414,
+        ]);
         
         let circuit = TornadoCircuit {
             secret: Value::known(secret),
             nullifier: Value::known(nullifier),
             path: Value::known(path),
             position_bits: Value::known(position_bits),
+            root: Value::known(root),
         };
 
-        let public_inputs = vec![
-            Fp::from_raw([ // commitment
-                0x92c1f7b1649c6bbf,
-                0xa227de40a263afa7,
-                0xe727c638157add9c,
-                0x1df874f19cd1afa3,
-            ]),
-            Fp::from_raw([ // merkle root
-                0x77c43bc65cfa9fc3,
-                0x669692400aa6adc7,
-                0xd8c3d88cf8b815fa,
-                0x109456ef2fee2414,
-            ]),
-        ];
+        let public_inputs = vec![commitment, root];
 
         let prover = MockProver::run(k, &circuit, vec![public_inputs.clone()]).unwrap();
         assert_eq!(prover.verify(), Ok(()))
