@@ -13,7 +13,7 @@ use halo2_gadgets::{
     },
     sinsemilla::{
         merkle::{chip::{MerkleConfig, MerkleChip}, MerklePath},
-        chip::SinsemillaChip,
+        chip::{SinsemillaChip, SinsemillaConfig},
     },
     utilities::{UtilitiesInstructions, lookup_range_check::LookupRangeCheckConfig},
 };
@@ -36,6 +36,7 @@ pub struct Config {
     instance: Column<Instance>,
     poseidon_config: PoseidonConfig<pallas::Base, WIDTH, RATE>,
     merkle_config: MerkleConfig<TornadoHashDomain, TornadoCommitDomain, TornadoFixedPoint>,
+    sinsemilla_config: SinsemillaConfig<TornadoHashDomain, TornadoCommitDomain, TornadoFixedPoint>,
 }
 
 #[derive(Debug, Default)]
@@ -181,17 +182,28 @@ impl Circuit<pallas::Base> for TornadoCircuit {
             merkle_lookup,
             range_check,
         );
-        let merkle_config = MerkleChip::configure(meta, sinsemilla_config);
+        let merkle_config = MerkleChip::configure(meta, sinsemilla_config.clone());
 
         Config {
             advices,
             instance,
             poseidon_config,
             merkle_config,
+            sinsemilla_config,
         }
     }
 
-    fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<pallas::Base>) -> Result<(), Error> {
+    fn synthesize(
+        &self,
+        config: Self::Config,
+        mut layouter: impl Layouter<pallas::Base>,
+    ) -> Result<(), Error> {
+        // Load Lookup Table
+        SinsemillaChip::<TornadoHashDomain, TornadoCommitDomain, TornadoFixedPoint>::load(
+            config.sinsemilla_config.clone(),
+            &mut layouter,
+        )?;
+
         let secret = self.load_private(
             layouter.namespace(|| "witness identity_trapdoor"),
             config.advices[0],
@@ -234,7 +246,7 @@ mod tests {
 
     #[test]
     fn commitment() {
-        let k = 10;
+        let k = 15;
 
         let secret = Fp::from(2);
         let nullifier = Fp::from(3);
