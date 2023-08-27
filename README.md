@@ -21,5 +21,5 @@ $ cargo run
 #### Test
 
 ```
-$ RUST_LOG=all cargo test -- --nocapture
+$ RUST_LOG=all cargo test -r -- --nocapture
 ```

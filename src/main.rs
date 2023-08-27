@@ -25,7 +25,7 @@ const COMMITMENT: usize = 0;
 const ROOT: usize = 1;
 
 // constants
-pub const MERKLE_DEPTH: usize = 4;
+pub const MERKLE_DEPTH: usize = 20;
 pub const WIDTH: usize = 3;
 pub const RATE: usize = 2;
 pub const MESSAGE_SIZE: usize = 2;
@@ -237,7 +237,7 @@ impl Circuit<pallas::Base> for TornadoCircuit {
             .assert_if_known(|(root_a, root_b)| { root_a.eq(root_b) });
 
         // outputs
-        // println!("commitment: {:?}, root: {:?}", commitment.value(), root.value());
+        println!("commitment: {:?}, root: {:?}", commitment.value(), root.value());
         self.expose_public(layouter.namespace(|| "expose commitment"), config.instance, commitment.clone(), COMMITMENT)?;
         self.expose_public(layouter.namespace(|| "expose root"), config.instance, root.clone(), ROOT)?;
 
@@ -257,7 +257,11 @@ mod tests {
         let secret = Fp::from(2);
         let nullifier = Fp::from(3);
         let path = [
-            Fp::from(1), Fp::from(1), Fp::from(1), Fp::from(1), 
+            Fp::from(1), Fp::from(1), Fp::from(1), Fp::from(1),
+            Fp::from(1), Fp::from(1), Fp::from(1), Fp::from(1),
+            Fp::from(1), Fp::from(1), Fp::from(1), Fp::from(1),
+            Fp::from(1), Fp::from(1), Fp::from(1), Fp::from(1),
+            Fp::from(1), Fp::from(1), Fp::from(1), Fp::from(1),
         ];
         let position_bits: u32 = 0;
         let commitment = Fp::from_raw([ // commitment
@@ -267,10 +271,10 @@ mod tests {
             0x1df874f19cd1afa3,
         ]);
         let root = Fp::from_raw([ // merkle root
-            0x77c43bc65cfa9fc3,
-            0x669692400aa6adc7,
-            0xd8c3d88cf8b815fa,
-            0x109456ef2fee2414,
+            0x65228039803e3479,
+            0x4ec863c1e036406f,
+            0x311ca87d9430aef2,
+            0x32324ba3505e8118,
         ]);
         
         let circuit = TornadoCircuit {
