@@ -1,7 +1,8 @@
+use gadgets::{TornadoHashDomain, TornadoCommitDomain, TornadoFixedPoint};
 use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, AssignedCell, Value},
     plonk::{Circuit, Advice, Instance, Column, ConstraintSystem, Error},
-    halo2curves::{pasta::{Fp, pallas}, group::{Group, Curve}},
+    halo2curves::pasta::{Fp, pallas},
 };
 use halo2_gadgets::{
     poseidon::{
@@ -12,51 +13,22 @@ use halo2_gadgets::{
     },
     sinsemilla::{
         merkle::{chip::{MerkleConfig, MerkleChip}, MerklePath},
-        CommitDomains, HashDomains, chip::SinsemillaChip,
+        chip::SinsemillaChip,
     },
     utilities::{UtilitiesInstructions, lookup_range_check::LookupRangeCheckConfig},
-    ecc::FixedPoints,
 };
 
 mod gadgets;
-
-pub const MERKLE_DEPTH: usize = 4;
 
 // Absolute offsets for public inputs.
 const COMMITMENT: usize = 0;
 const ROOT: usize = 1;
 
+// constants
+pub const MERKLE_DEPTH: usize = 4;
 pub const WIDTH: usize = 3;
 pub const RATE: usize = 2;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TornadoHashDomain;
-#[allow(non_snake_case)]
-impl HashDomains<pallas::Affine> for TornadoHashDomain {
-    fn Q(&self) -> pallas::Affine {
-        pallas::Point::generator().to_affine() // ???
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TornadoFixedPoint;
-impl FixedPoints<pallas::Affine> for TornadoFixedPoint {
-    type FullScalar = pallas::Affine;
-    type ShortScalar = pallas::Affine;
-    type Base = pallas::Affine;
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TornadoCommitDomain;
-impl CommitDomains<pallas::Affine, TornadoFixedPoint, TornadoHashDomain> for TornadoCommitDomain {
-    fn r(&self) -> <TornadoFixedPoint as FixedPoints<pallas::Affine>>::FullScalar {
-        pallas::Point::generator().to_affine()
-    }
-
-    fn hash_domain(&self) -> TornadoHashDomain {
-        TornadoHashDomain
-    }
-}
+pub const MESSAGE_SIZE: usize = 2;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -83,7 +55,7 @@ impl TornadoCircuit {
         &self,
         config: Config,
         mut layouter: impl Layouter<Fp>,
-        message: [AssignedCell<Fp, Fp>; 2],
+        message: [AssignedCell<Fp, Fp>; MESSAGE_SIZE],
     ) -> Result<AssignedCell<Fp, Fp>, Error> {
         let config = config.clone();
         
@@ -94,9 +66,9 @@ impl TornadoCircuit {
             Fp,
             PoseidonChip<Fp, WIDTH, RATE>,
             P128Pow5T3,
-            ConstantLength<2_usize>,
-            3_usize,
-            2_usize
+            ConstantLength<MESSAGE_SIZE>,
+            WIDTH,
+            RATE,
         >
             = PoseidonHash::init(poseidon_chip, layouter.namespace(|| "init hasher"))?;
 
@@ -247,7 +219,7 @@ impl Circuit<pallas::Base> for TornadoCircuit {
             self.path,
         )?;
 
-        // println!("commitment: {:?}, root: {:?}", commitment.value(), root.value());
+        println!("commitment: {:?}, root: {:?}", commitment.value(), root.value());
         self.expose_public(layouter.namespace(|| "expose commitment"), config.instance, commitment.clone(), COMMITMENT)?;
         self.expose_public(layouter.namespace(|| "expose root"), config.instance, root.clone(), ROOT)?;
 
@@ -269,7 +241,7 @@ mod tests {
         let path = [
             Fp::from(1), Fp::from(1), Fp::from(1), Fp::from(1), 
         ];
-        let position_bits: u32 = 1;
+        let position_bits: u32 = 0;
         
         let circuit = TornadoCircuit {
             secret: Value::known(secret),
@@ -279,17 +251,17 @@ mod tests {
         };
 
         let public_inputs = vec![
-            Fp::from_raw([
+            Fp::from_raw([ // commitment
                 0x92c1f7b1649c6bbf,
                 0xa227de40a263afa7,
                 0xe727c638157add9c,
                 0x1df874f19cd1afa3,
             ]),
-            Fp::from_raw([
-                0x3058c942b6150b15,
-                0x369f22098cb08f84,
-                0xd4e309a93493cd14,
-                0x3e0dd91d7883e6b1,
+            Fp::from_raw([ // merkle root
+                0x77c43bc65cfa9fc3,
+                0x669692400aa6adc7,
+                0xd8c3d88cf8b815fa,
+                0x109456ef2fee2414,
             ]),
         ];
 
